@@ -79,7 +79,7 @@ export default {
     const plat = detectPlatform();
     if (plat === 'darwin') return sendMac(n, soundOpt, bundled, { signal, execFile, spawn });
     if (plat === 'linux') return sendLinux(n, soundOpt, bundled, { signal, execFile, spawn, log });
-    if (plat === 'wsl' || plat === 'win32') return sendWindows(n, soundOpt, bundled, { signal, execFile, spawn });
+    if (plat === 'wsl' || plat === 'win32') return sendWindows(n, soundOpt, bundled, { execFile, log });
     log?.debug?.(`desktop: unsupported platform ${plat}`);
     return undefined;
   },
@@ -143,23 +143,34 @@ function buildPlayerScript(soundPath) {
   ].join('; ');
 }
 
-function sendWindows(n, soundOpt, bundled, { signal, execFile, spawn }) {
+async function sendWindows(n, soundOpt, bundled, { execFile, log }) {
   const sound = resolveWindowsSound(soundOpt, process.env, bundled);
-  // Audio: DETACHED player, unbound by the hook's 1.5s dispatch timeout; plays fully.
-  if (sound && spawn) {
-    spawnDetached(
-      spawn,
-      'powershell.exe',
-      ['-NoProfile', '-NonInteractive', '-WindowStyle', 'Hidden', '-Command', buildPlayerScript(sound)],
-      { windowsHide: true },
-    );
-  }
+
   // Visual: a real toast if BurntToast is installed (silent — the player owns the sound).
+  // Fire it alongside the audio; don't block the sound on it.
   const title = psQuote(n.title);
   const body = psQuote(n.body);
   const toast = "$ErrorActionPreference='SilentlyContinue'; "
     + 'if (Get-Module -ListAvailable -Name BurntToast) { '
     + `Import-Module BurntToast; New-BurntToastNotification -Text '${title}','${body}' -Silent }`;
-  return execFile('powershell.exe', ['-NoProfile', '-NonInteractive', '-Command', toast], { signal })
-    .catch(() => {}); // toast is best-effort; never fail the notification over it
+  const toastP = execFile('powershell.exe', ['-NoProfile', '-NonInteractive', '-Command', toast], { timeout: 5000 })
+    .catch(() => {});
+
+  // Audio: play SYNCHRONOUSLY. Claude Code runs hooks in a Windows job object that kills
+  // detached children when the hook exits, so we must let the sound finish before returning.
+  // No dispatch AbortSignal here (that 1.5s cap is for network providers); own 31s hard cap.
+  if (sound) {
+    const t0 = Date.now();
+    try {
+      await execFile(
+        'powershell.exe',
+        ['-NoProfile', '-NonInteractive', '-WindowStyle', 'Hidden', '-Command', buildPlayerScript(sound)],
+        { timeout: 31000, windowsHide: true },
+      );
+      log?.debug?.(`desktop: played ${sound} in ${Date.now() - t0}ms`);
+    } catch (e) {
+      log?.debug?.(`desktop: player failed after ${Date.now() - t0}ms (${e?.code || e?.message || 'error'})`);
+    }
+  }
+  await toastP;
 }

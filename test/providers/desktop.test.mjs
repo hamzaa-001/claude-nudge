@@ -54,22 +54,23 @@ test('resolveUnixSound: file paths vs system-sound names vs bundled default', ()
   assert.deepEqual(resolveUnixSound(true), { file: null, name: 'Glass' });
 });
 
-test('Windows: audio is spawned DETACHED with the resolved file, unbound by the timeout', async () => {
+test('Windows: audio plays SYNCHRONOUSLY via execFile with the resolved file (survives the job object)', async () => {
   if (detectPlatform() !== 'win32' && detectPlatform() !== 'wsl') return;
   const h = harness();
   await desktop.send(NOTE, cfg('F:\\clip\\custom.mp3'), { execFile: h.execFile, spawn: h.spawn, log: h.log });
-  assert.equal(h.spawnCalls.length, 1, 'audio should be spawned once');
-  const s = h.spawnCalls[0];
-  assert.match(s.command, /powershell/i);
-  assert.equal(s.opts.detached, true, 'must detach so the sound outlives the hook');
-  assert.ok(s.args.join(' ').includes('custom.mp3'), 'the chosen file must reach the player');
+  const player = h.execCalls.find((c) => c.args.join(' ').includes('MediaPlayer'));
+  assert.ok(player, 'the audio player must run via execFile (awaited), not a detached spawn');
+  assert.ok(player.args.join(' ').includes('custom.mp3'), 'the chosen file must reach the player');
+  assert.ok(!('signal' in (player.opts || {})), 'the 1.5s network AbortSignal must not cut local audio');
+  assert.equal(player.opts.timeout, 31000, 'player has its own hard cap');
+  assert.equal(h.spawnCalls.length, 0, 'Windows no longer detaches audio');
 });
 
-test('Windows: sound=false spawns no audio', async () => {
+test('Windows: sound=false plays no audio', async () => {
   if (detectPlatform() !== 'win32' && detectPlatform() !== 'wsl') return;
   const h = harness();
   await desktop.send(NOTE, cfg(false), { execFile: h.execFile, spawn: h.spawn, log: h.log });
-  assert.equal(h.spawnCalls.length, 0);
+  assert.ok(!h.execCalls.some((c) => c.args.join(' ').includes('MediaPlayer')), 'no player when silent');
 });
 
 test('linux: missing notify-send is swallowed as a no-op', async () => {

@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 // nudge.mjs — single entrypoint for every hook event, plus --test / --status CLI modes.
-// Contract: every path exits 0, all errors swallowed, self-terminates at 2s.
+// Contract: every path exits 0, all errors swallowed. Self-terminates at 2s for sync hooks,
+// 15s for the async sound-playing hooks (so a local sound can finish before exit).
 import { readFileSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { join } from 'node:path';
@@ -15,10 +16,22 @@ import { createLogger, redactConfig } from './lib/logger.mjs';
 import { detectPlatform } from './lib/platform.mjs';
 import { providers } from './providers/index.mjs';
 
-const WATCHDOG_MS = 2000;
+// Sync hooks (turn_start/session_end) must stay under 2s. The async hooks (turn_end/needs_input)
+// play a local sound the process has to outlive, so they get a longer wall-clock budget.
+const SYNC_BUDGET_MS = 2000;
+const ASYNC_BUDGET_MS = 15000;
 const pad = (s) => String(s).padEnd(10);
 
 let hookMode = true;
+let watchdog;
+function armWatchdog(ms) {
+  clearTimeout(watchdog);
+  watchdog = setTimeout(() => {
+    try { if (hookMode) process.stdout.write('{"suppressOutput":true}\n'); } catch { /* ignore */ }
+    process.exit(0);
+  }, ms);
+  watchdog.unref();
+}
 
 function envDebug() {
   const v = process.env.NUDGE_DEBUG ?? process.env.CLAUDE_PLUGIN_OPTION_DEBUG;
@@ -29,6 +42,9 @@ async function runHook(logger) {
   const now = Date.now();
   const event = parseEvent(await readStdin(), now);
   if (!event) { logger.debug('no valid event on stdin'); return; }
+
+  // Async, sound-playing events get the longer budget so the audio can finish.
+  if (event.kind === 'turn_end' || event.kind === 'needs_input') armWatchdog(ASYNC_BUDGET_MS);
 
   const config = loadConfig({ cwd: event.cwd, onWarn: (m) => logger.debug(`config: ${m}`) });
   logger.setEnabled(config.debug || logger.enabled);
@@ -152,16 +168,11 @@ async function main() {
   const argv = process.argv.slice(2);
   if (argv.includes('--test')) { hookMode = false; return runTest(logger); }
   if (argv.includes('--status')) { hookMode = false; return runStatus(); }
+  armWatchdog(SYNC_BUDGET_MS); // runHook bumps this to ASYNC_BUDGET_MS for sound-playing events
   await runHook(logger);
   // async hooks discard stdout, but the sync hooks read it — keep our output out of the transcript.
   try { process.stdout.write('{"suppressOutput":true}\n'); } catch { /* ignore */ }
   return undefined;
 }
-
-const watchdog = setTimeout(() => {
-  try { if (hookMode) process.stdout.write('{"suppressOutput":true}\n'); } catch { /* ignore */ }
-  process.exit(0);
-}, WATCHDOG_MS);
-watchdog.unref();
 
 main().catch(() => {}).finally(() => { clearTimeout(watchdog); process.exit(0); });
