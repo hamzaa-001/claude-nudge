@@ -6,7 +6,8 @@
  * @property {string}  sessionId
  * @property {string}  cwd
  * @property {string}  project        basename(cwd), or "unknown"
- * @property {string=} message        raw text from Notification events only
+ * @property {string=} message        raw text from Notification / question events
+ * @property {string=} tool           tool name for PreToolUse events (e.g. 'AskUserQuestion')
  * @property {number}  at             epoch ms
  * @property {string}  rawEventName   original hook_event_name, for logging
  */

@@ -124,6 +124,22 @@ Proposed `userConfig` keys (per spec): `ntfyTopic` (sensitive), `minDurationSeco
 3. Add a **`StopFailure`** hook (async) so error-terminated turns still notify.
 4. `message` field on Notification is **unverified** — capture real payload in M0; code must not assume it exists.
 5. `idle_prompt` in the **VS Code extension** is unverified; `Stop` is the dependable path — document honestly.
+
+## Update — question/plan nudges in every permission mode (v0.3.0)
+
+The VS Code extension does **not** emit a `Notification` (`idle_prompt`/`agent_needs_input`) when Claude
+asks an interactive question (the `AskUserQuestion` tool) — verified empirically: with a question
+dialog open, zero hooks fired. So a `Notification`-only approach can't nudge on questions there.
+
+Fix: hook **`PreToolUse`** matched to the input-asking tools (`AskUserQuestion|ExitPlanMode`). `PreToolUse`
+fires for every tool call regardless of permission mode, so the nudge fires right as the question/plan
+dialog appears — no need to switch to "default" permission mode. `event.mjs` maps `PreToolUse` →
+`needs_input` (high priority, bypasses the duration gate) and reads the tool name for a tailored body
+("Claude has a question for you" / "Claude has a plan to review").
+
+Still to confirm live: that the VS Code extension emits `PreToolUse` for `AskUserQuestion` (core tool
+events should fire for all tools). Verify after reload via the debug log: a question should log
+`DECISION needs_input … (raw:PreToolUse)`.
 6. SessionEnd hooks share a **1.5s budget**; keep prune fast (explicit `timeout` raises it).
 7. async hook stdout is discarded — `suppressOutput` matters only for the sync hooks; emit it uniformly anyway.
 

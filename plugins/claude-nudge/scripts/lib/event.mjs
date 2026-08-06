@@ -41,11 +41,18 @@ const KIND_BY_EVENT = {
   Stop: 'turn_end',
   StopFailure: 'turn_end', // error-terminated turn — still a "done" signal
   Notification: 'needs_input',
+  // Fires when Claude is about to ask you something (question / plan approval). This is the
+  // input signal that works in every permission mode, incl. the VS Code extension where the
+  // idle Notification never fires. The hooks.json matcher limits it to the input-asking tools.
+  PreToolUse: 'needs_input',
   SessionEnd: 'session_end',
 };
 
-// The Notification payload's message field name is not documented; probe the likely spots.
+// The Notification payload's message field name is not documented; probe the likely spots,
+// and pull the question text out of an AskUserQuestion tool_input when present.
 function extractMessage(obj) {
+  const q = obj.tool_input?.questions;
+  if (Array.isArray(q) && typeof q[0]?.question === 'string') return q[0].question;
   const candidates = [obj.message, obj.notification?.message, obj.notification?.body, obj.body, obj.text];
   for (const c of candidates) if (typeof c === 'string' && c.length) return c;
   return undefined;
@@ -71,6 +78,7 @@ export function parseEvent(raw, now) {
     cwd,
     project,
     message: extractMessage(obj),
+    tool: typeof obj.tool_name === 'string' ? obj.tool_name : undefined,
     at: now,
     rawEventName,
   };

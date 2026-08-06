@@ -27,8 +27,11 @@ export function buildNotification(event, decision, config, { durationMs = 0 } = 
     body = `Finished — ${humanizeDuration(durationMs)}`;
     tags = ['white_check_mark'];
   } else if (event.kind === 'needs_input') {
-    // Only surface raw message text when explicitly opted in.
-    body = config.includeMessage && event.message ? event.message : 'Waiting for your input';
+    // Only surface raw message text when explicitly opted in; otherwise a tool-aware default.
+    if (config.includeMessage && event.message) body = event.message;
+    else if (event.tool === 'AskUserQuestion') body = 'Claude has a question for you';
+    else if (event.tool === 'ExitPlanMode') body = 'Claude has a plan to review';
+    else body = 'Waiting for your input';
     tags = ['bell'];
   } else if (event.kind === 'session_end') {
     body = 'Session ended';

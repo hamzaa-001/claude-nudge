@@ -28,6 +28,15 @@ test('needs_input hides message unless includeMessage is set', () => {
   assert.equal(on.body, 'run rm -rf secret');
 });
 
+test('needs_input body reflects the asking tool', () => {
+  const mk = (tool) => buildNotification(
+    { kind: 'needs_input', project: 'app', at: 1, tool }, { priority: 'high' }, defaults(), {},
+  ).body;
+  assert.equal(mk('AskUserQuestion'), 'Claude has a question for you');
+  assert.equal(mk('ExitPlanMode'), 'Claude has a plan to review');
+  assert.equal(mk(undefined), 'Waiting for your input');
+});
+
 test('dispatch only calls enabled + configured providers, in parallel', async () => {
   const calls = [];
   const mkProvider = (name, configured) => ({
