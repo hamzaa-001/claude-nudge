@@ -20,11 +20,11 @@ const WIN_SOUNDS = {
 const WIN_DEFAULT = 'Windows Notify System Generic.wav';
 
 /**
- * Resolve the desktop `sound` config to a concrete Windows wav path (or null for silent).
+ * Resolve the desktop `sound` config to a concrete audio file path (or null for silent).
  * - false            -> null (no sound)
  * - true / undefined -> the gentle default chime
  * - "<name>"         -> a mapped friendly name (unknown names fall back to the default)
- * - "X:\path.wav"    -> used verbatim
+ * - "X:\my.mp3"      -> used verbatim (any format MediaPlayer supports: mp3, wav, wma, m4a…)
  * @returns {string|null}
  */
 export function resolveWindowsSound(soundOpt, env = process.env) {
@@ -33,7 +33,7 @@ export function resolveWindowsSound(soundOpt, env = process.env) {
   const media = (file) => `${root}\\Media\\${file}`;
   if (soundOpt === true || soundOpt == null || soundOpt === '') return media(WIN_DEFAULT);
   const s = String(soundOpt).trim();
-  if (/\.wav$/i.test(s) && /[\\/:]/.test(s)) return s; // an explicit path
+  if (/[\\/:]/.test(s) && /\.[a-z0-9]{2,4}$/i.test(s)) return s; // an explicit file path, any format
   return media(WIN_SOUNDS[s.toLowerCase()] || WIN_DEFAULT);
 }
 
@@ -41,12 +41,12 @@ export default {
   name: 'desktop',
   isConfigured() { return true; },
 
-  async send(n, config, { signal, log, execFile }) {
+  async send(n, config, { signal, log, execFile, spawn }) {
     const soundOpt = config.providers?.desktop?.sound; // true | false | string
     const plat = detectPlatform();
     if (plat === 'darwin') return sendMac(n, soundOpt, { signal, execFile });
     if (plat === 'linux') return sendLinux(n, { signal, execFile, log });
-    if (plat === 'wsl' || plat === 'win32') return sendWindows(n, soundOpt, { signal, execFile });
+    if (plat === 'wsl' || plat === 'win32') return sendWindows(n, soundOpt, { signal, execFile, spawn });
     log?.debug?.(`desktop: unsupported platform ${plat}`);
     return undefined;
   },
@@ -69,20 +69,47 @@ async function sendLinux(n, { signal, execFile, log }) {
   }
 }
 
-async function sendWindows(n, soundOpt, { signal, execFile }) {
+// A self-contained PowerShell program that plays any audio file to completion via
+// System.Windows.Media.MediaPlayer (supports mp3/wav/wma/…), capped at 30s.
+function buildPlayerScript(wavPath) {
+  return [
+    "$ErrorActionPreference='SilentlyContinue'",
+    'Add-Type -AssemblyName PresentationCore',
+    '$p=New-Object System.Windows.Media.MediaPlayer',
+    `$p.Open((New-Object System.Uri('${psQuote(wavPath)}')))`,
+    '$n=0; while(-not $p.NaturalDuration.HasTimeSpan -and $n -lt 40){ Start-Sleep -Milliseconds 50; $n++ }',
+    '$p.Play()',
+    '$ms=2000; if($p.NaturalDuration.HasTimeSpan){ $ms=[int]$p.NaturalDuration.TimeSpan.TotalMilliseconds+400 }',
+    'if($ms -gt 30000){ $ms=30000 }',
+    'Start-Sleep -Milliseconds $ms',
+    '$p.Close()',
+  ].join('; ');
+}
+
+function sendWindows(n, soundOpt, { signal, execFile, spawn }) {
+  const wav = resolveWindowsSound(soundOpt);
+
+  // Audio: fire-and-forget a DETACHED player so it plays fully, unbound by the hook's
+  // 1.5s dispatch timeout / 2s watchdog. Any format, plays to completion (≤30s).
+  if (wav && spawn) {
+    try {
+      const child = spawn(
+        'powershell.exe',
+        ['-NoProfile', '-NonInteractive', '-WindowStyle', 'Hidden', '-Command', buildPlayerScript(wav)],
+        { detached: true, stdio: 'ignore', windowsHide: true },
+      );
+      child.unref?.();
+      child.on?.('error', () => {});
+    } catch { /* audio is best-effort */ }
+  }
+
+  // Visual: show a real toast if BurntToast is installed (silent — our player owns the sound).
+  // If it isn't installed, this is a no-op and the sound alone stands in.
   const title = psQuote(n.title);
   const body = psQuote(n.body);
-  const wav = resolveWindowsSound(soundOpt);
-  // Play a gentle wav synchronously so a short-lived process finishes the sound.
-  const playCmd = wav
-    ? `try { (New-Object System.Media.SoundPlayer '${psQuote(wav)}').PlaySync() } catch { }`
-    : '';
-  // If BurntToast is installed, show a real toast (its default sound is the smooth system chime);
-  // otherwise degrade to the gentle wav.
-  const script =
-    "$ErrorActionPreference='SilentlyContinue'; "
+  const toast = "$ErrorActionPreference='SilentlyContinue'; "
     + 'if (Get-Module -ListAvailable -Name BurntToast) { '
-    + `Import-Module BurntToast; New-BurntToastNotification -Text '${title}','${body}'${wav ? '' : ' -Silent'} } `
-    + `else { ${playCmd} }`;
-  await execFile('powershell.exe', ['-NoProfile', '-NonInteractive', '-Command', script], { signal });
+    + `Import-Module BurntToast; New-BurntToastNotification -Text '${title}','${body}' -Silent }`;
+  return execFile('powershell.exe', ['-NoProfile', '-NonInteractive', '-Command', toast], { signal })
+    .catch(() => {}); // toast is best-effort; never fail the notification over it
 }

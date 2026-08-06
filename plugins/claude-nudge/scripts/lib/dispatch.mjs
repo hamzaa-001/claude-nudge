@@ -1,5 +1,5 @@
 // dispatch.mjs — build the Notification and fan out to providers in parallel.
-import { execFile as _execFile } from 'node:child_process';
+import { execFile as _execFile, spawn as _spawn } from 'node:child_process';
 import { promisify } from 'node:util';
 
 const execFileP = promisify(_execFile);
@@ -55,7 +55,7 @@ function safeIsConfigured(p, config) {
  * @returns {Promise<Array<{provider:string, ok:boolean, error?:string}>>}
  */
 export async function dispatch(notification, config, {
-  providers, log, fetchImpl = globalThis.fetch, execFileImpl = execFileP, timeoutMs = 1500,
+  providers, log, fetchImpl = globalThis.fetch, execFileImpl = execFileP, spawnImpl = _spawn, timeoutMs = 1500,
 } = {}) {
   const active = (providers || []).filter(
     (p) => config.providers?.[p.name]?.enabled && safeIsConfigured(p, config),
@@ -67,7 +67,7 @@ export async function dispatch(notification, config, {
   try {
     const settled = await Promise.allSettled(active.map((p) => Promise.resolve().then(
       () => p.send(notification, config, {
-        signal: controller.signal, log, fetch: fetchImpl, execFile: execFileImpl,
+        signal: controller.signal, log, fetch: fetchImpl, execFile: execFileImpl, spawn: spawnImpl,
       }),
     )));
     return active.map((p, i) => {

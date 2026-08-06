@@ -85,13 +85,19 @@ Every provider has `enabled` plus its own fields. A provider must be **both enab
 | `enabled` | Local OS notification. |
 | `sound` | `true` (gentle default chime), `false` (silent), or a name/path. |
 
-**Sound options.** On Windows/WSL the default is the soft `Windows Notify System Generic` chime (not the harsh Asterisk beep). Set `providers.desktop.sound` to any of these friendly names — `generic`, `calendar`, `messaging`, `email`, `notify`, `ding`, `chimes` — or to an absolute path to your own `.wav`. On macOS the value is used as the `osascript` sound name (default `Glass`). Example:
+**Sound options.** On Windows/WSL the default is the soft `Windows Notify System Generic` chime (not the harsh Asterisk beep). Set `providers.desktop.sound` to:
+
+- a friendly name — `generic`, `calendar`, `messaging`, `email`, `notify`, `ding`, `chimes`, or
+- **an absolute path to your own audio file** — `mp3`, `wav`, `wma`, `m4a`, … (anything Windows MediaPlayer supports), or
+- `false` to silence.
+
+Custom audio plays in a detached background process, so it plays **to completion** (up to a 30-second cap) rather than being cut short by the hook's safety timeout. On macOS the value is used as the `osascript` sound name (default `Glass`); macOS custom sounds are limited to installed system sound names.
 
 ```json
-{ "providers": { "desktop": { "enabled": true, "sound": "calendar" } } }
+{ "providers": { "desktop": { "enabled": true, "sound": "C:\\Users\\you\\Sounds\\notify.mp3" } } }
 ```
 
-Or per-shell: `NUDGE_DESKTOP_SOUND=messaging` (or `false` to silence).
+(Use doubled backslashes in JSON.) Or per-shell: `NUDGE_DESKTOP_SOUND=messaging` (or a path, or `false`).
 
 #### `ntfy` (phone push)
 | Field | Notes |

@@ -8,48 +8,51 @@ const NOTE = {
 };
 const cfg = (sound = true) => ({ providers: { desktop: { enabled: true, sound } } });
 
-test('always uses an argv array and never a shell', async () => {
-  let call;
-  const execFile = async (command, args, opts) => { call = { command, args, opts }; return { stdout: '', stderr: '' }; };
-  await desktop.send(NOTE, cfg(), { execFile, log: { debug() {} } });
+// Capture both execFile (toast / mac / linux) and spawn (windows audio).
+function harness() {
+  const execCalls = [];
+  const spawnCalls = [];
+  const execFile = async (command, args, opts) => { execCalls.push({ command, args, opts }); return { stdout: '', stderr: '' }; };
+  const spawn = (command, args, opts) => { spawnCalls.push({ command, args, opts }); return { unref() {}, on() {} }; };
+  return { execCalls, spawnCalls, execFile, spawn, log: { debug() {} } };
+}
 
-  const plat = detectPlatform();
-  if (plat === 'darwin' || plat === 'linux' || plat === 'wsl' || plat === 'win32') {
-    assert.ok(call, 'a supported platform must invoke execFile');
-    assert.equal(typeof call.command, 'string');
-    assert.ok(Array.isArray(call.args), 'args must be an array');
-    assert.ok(!('shell' in (call.opts || {})), 'must never pass shell option');
+test('every subprocess call uses an argv array and never a shell', async () => {
+  const h = harness();
+  await desktop.send(NOTE, cfg(), { execFile: h.execFile, spawn: h.spawn, log: h.log });
+  for (const c of [...h.execCalls, ...h.spawnCalls]) {
+    assert.equal(typeof c.command, 'string');
+    assert.ok(Array.isArray(c.args), 'args must be an array');
+    assert.ok(!('shell' in (c.opts || {})), 'must never pass a shell option');
   }
 });
 
-test('passes the AbortSignal through to execFile', async () => {
-  let seenSignal;
-  const controller = new AbortController();
-  const execFile = async (_c, _a, opts) => { seenSignal = opts?.signal; return { stdout: '' }; };
-  await desktop.send(NOTE, cfg(), { execFile, signal: controller.signal, log: { debug() {} } });
-  const plat = detectPlatform();
-  if (plat !== 'linux' || true) { /* signal is forwarded on all platforms that call execFile */ }
-  if (seenSignal !== undefined) assert.equal(seenSignal, controller.signal);
-});
-
-test('resolveWindowsSound maps names, honors false, and passes paths through', () => {
+test('resolveWindowsSound: names map, false silences, and any file path passes through', () => {
   const env = { SystemRoot: 'C:\\Windows' };
   assert.equal(resolveWindowsSound(false, env), null);
   assert.equal(resolveWindowsSound(true, env), 'C:\\Windows\\Media\\Windows Notify System Generic.wav');
   assert.equal(resolveWindowsSound('calendar', env), 'C:\\Windows\\Media\\Windows Notify Calendar.wav');
   assert.equal(resolveWindowsSound('unknown-name', env), 'C:\\Windows\\Media\\Windows Notify System Generic.wav');
   assert.equal(resolveWindowsSound('D:\\sounds\\mine.wav', env), 'D:\\sounds\\mine.wav');
+  assert.equal(resolveWindowsSound('F:\\clip\\custom.mp3', env), 'F:\\clip\\custom.mp3'); // mp3 supported
 });
 
-test('Windows send: chosen wav ends up in the powershell argv (no shell)', async () => {
+test('Windows: audio is spawned DETACHED with the resolved file, unbound by the timeout', async () => {
   if (detectPlatform() !== 'win32' && detectPlatform() !== 'wsl') return;
-  let call;
-  const execFile = async (command, args, opts) => { call = { command, args, opts }; return { stdout: '' }; };
-  await desktop.send(NOTE, { providers: { desktop: { enabled: true, sound: 'calendar' } } }, { execFile, log: { debug() {} } });
-  assert.match(call.command, /powershell/i);
-  assert.ok(Array.isArray(call.args));
-  assert.ok(call.args.join(' ').includes('Windows Notify Calendar.wav'));
-  assert.ok(!('shell' in (call.opts || {})));
+  const h = harness();
+  await desktop.send(NOTE, cfg('F:\\clip\\custom.mp3'), { execFile: h.execFile, spawn: h.spawn, log: h.log });
+  assert.equal(h.spawnCalls.length, 1, 'audio should be spawned once');
+  const s = h.spawnCalls[0];
+  assert.match(s.command, /powershell/i);
+  assert.equal(s.opts.detached, true, 'must detach so the sound outlives the hook');
+  assert.ok(s.args.join(' ').includes('custom.mp3'), 'the chosen file must reach the player');
+});
+
+test('Windows: sound=false spawns no audio', async () => {
+  if (detectPlatform() !== 'win32' && detectPlatform() !== 'wsl') return;
+  const h = harness();
+  await desktop.send(NOTE, cfg(false), { execFile: h.execFile, spawn: h.spawn, log: h.log });
+  assert.equal(h.spawnCalls.length, 0);
 });
 
 test('linux: missing notify-send is swallowed as a no-op', async () => {

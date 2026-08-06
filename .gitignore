@@ -4,3 +4,7 @@ node_modules/
 *.log
 .DS_Store
 Thumbs.db
+
+# Personal notification audio dropped in the repo root — not part of the plugin.
+/*.mp3
+/*.wav

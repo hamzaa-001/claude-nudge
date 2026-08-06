@@ -72,7 +72,7 @@ Config is layered, lowest→highest: built-in defaults → `~/.claude/nudge/conf
 | macOS | `osascript` banner + `Glass` sound | Full support. |
 | Linux | `notify-send` | Needs `libnotify` (`notify-send`). If absent, silently no-ops (logged). |
 | WSL | `powershell.exe` | Toast via [BurntToast](https://github.com/Windos/BurntToast) if installed, otherwise a gentle **chime** (configurable via `providers.desktop.sound`). |
-| Windows | `powershell.exe` | Same as WSL. Default sound is the soft `Windows Notify System Generic` chime; set `sound` to `calendar`/`messaging`/`ding`/… or a `.wav` path. `Install-Module BurntToast` for real toast cards. |
+| Windows | `powershell.exe` | Same as WSL. Default sound is the soft `Windows Notify System Generic` chime; set `sound` to `calendar`/`messaging`/`ding`/… or a path to your own **`.mp3`/`.wav`/…** (plays to completion). `Install-Module BurntToast` for real toast cards. |
 
 The remote providers (ntfy/Telegram/webhook) work identically on every platform — they're the recommended path, especially in the VS Code extension.
 
