@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import desktop, { resolveWindowsSound } from '../../plugins/claude-nudge/scripts/providers/desktop.mjs';
+import desktop, { resolveWindowsSound, resolveUnixSound } from '../../plugins/claude-nudge/scripts/providers/desktop.mjs';
 import { detectPlatform } from '../../plugins/claude-nudge/scripts/lib/platform.mjs';
 
 const NOTE = {
@@ -35,6 +35,23 @@ test('resolveWindowsSound: names map, false silences, and any file path passes t
   assert.equal(resolveWindowsSound('unknown-name', env), 'C:\\Windows\\Media\\Windows Notify System Generic.wav');
   assert.equal(resolveWindowsSound('D:\\sounds\\mine.wav', env), 'D:\\sounds\\mine.wav');
   assert.equal(resolveWindowsSound('F:\\clip\\custom.mp3', env), 'F:\\clip\\custom.mp3'); // mp3 supported
+});
+
+test('resolveWindowsSound: a bundled default is used when config is at default', () => {
+  const env = { SystemRoot: 'C:\\Windows' };
+  const bundled = 'C:\\plug\\assets\\notify.mp3';
+  assert.equal(resolveWindowsSound(true, env, bundled), bundled);
+  assert.equal(resolveWindowsSound(undefined, env, bundled), bundled);
+  assert.equal(resolveWindowsSound(false, env, bundled), null, 'false still silences over a bundled default');
+  assert.equal(resolveWindowsSound('ding', env, bundled), 'C:\\Windows\\Media\\Windows Ding.wav', 'explicit choice overrides bundled');
+});
+
+test('resolveUnixSound: file paths vs system-sound names vs bundled default', () => {
+  assert.deepEqual(resolveUnixSound(false), { file: null, name: null });
+  assert.deepEqual(resolveUnixSound('Glass'), { file: null, name: 'Glass' });
+  assert.deepEqual(resolveUnixSound('/home/me/s.wav'), { file: '/home/me/s.wav', name: null });
+  assert.deepEqual(resolveUnixSound(true, '/plug/assets/notify.mp3'), { file: '/plug/assets/notify.mp3', name: null });
+  assert.deepEqual(resolveUnixSound(true), { file: null, name: 'Glass' });
 });
 
 test('Windows: audio is spawned DETACHED with the resolved file, unbound by the timeout', async () => {

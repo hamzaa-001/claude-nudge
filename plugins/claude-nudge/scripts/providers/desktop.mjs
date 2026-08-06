@@ -1,4 +1,7 @@
 // desktop.mjs — local OS notification. All subprocess calls use argv arrays (never a shell).
+import { fileURLToPath } from 'node:url';
+import { dirname, join } from 'node:path';
+import { existsSync } from 'node:fs';
 import { detectPlatform } from '../lib/platform.mjs';
 
 function escAppleScript(s) { return String(s).replace(/\\/g, '\\\\').replace(/"/g, '\\"'); }
@@ -19,22 +22,51 @@ const WIN_SOUNDS = {
 };
 const WIN_DEFAULT = 'Windows Notify System Generic.wav';
 
+// A sound file bundled with the plugin (assets/notify.wav|mp3) ships to every install and
+// becomes the default sound, so users hear it out of the box without any local file.
+const ASSET_DIR = join(dirname(fileURLToPath(import.meta.url)), '..', '..', 'assets');
+export function bundledSound() {
+  for (const f of ['notify.wav', 'notify.mp3']) {
+    const p = join(ASSET_DIR, f);
+    if (existsSync(p)) return p;
+  }
+  return null;
+}
+
+function isFilePath(s) { return /[\\/]/.test(s) && /\.[a-z0-9]{2,4}$/i.test(s); }
+
 /**
- * Resolve the desktop `sound` config to a concrete audio file path (or null for silent).
- * - false            -> null (no sound)
- * - true / undefined -> the gentle default chime
- * - "<name>"         -> a mapped friendly name (unknown names fall back to the default)
- * - "X:\my.mp3"      -> used verbatim (any format MediaPlayer supports: mp3, wav, wma, m4a…)
- * @returns {string|null}
+ * Resolve the desktop `sound` config to a Windows audio path (or null for silent).
+ * @param soundOpt        false | true | undefined | "<name>" | "X:\file.mp3"
+ * @param bundledDefault  path to the bundled sound to use when the config is at its default
  */
-export function resolveWindowsSound(soundOpt, env = process.env) {
+export function resolveWindowsSound(soundOpt, env = process.env, bundledDefault = null) {
   if (soundOpt === false) return null;
   const root = env.SystemRoot || env.windir || 'C:\\Windows';
   const media = (file) => `${root}\\Media\\${file}`;
-  if (soundOpt === true || soundOpt == null || soundOpt === '') return media(WIN_DEFAULT);
+  if (soundOpt === true || soundOpt == null || soundOpt === '') return bundledDefault || media(WIN_DEFAULT);
   const s = String(soundOpt).trim();
-  if (/[\\/:]/.test(s) && /\.[a-z0-9]{2,4}$/i.test(s)) return s; // an explicit file path, any format
+  if (isFilePath(s)) return s; // an explicit path, any format
   return media(WIN_SOUNDS[s.toLowerCase()] || WIN_DEFAULT);
+}
+
+// For macOS/Linux: split the config into "play this file" vs "use this named system sound".
+export function resolveUnixSound(soundOpt, bundledDefault = null) {
+  if (soundOpt === false) return { file: null, name: null };
+  if (typeof soundOpt === 'string' && soundOpt.trim()) {
+    const s = soundOpt.trim();
+    return isFilePath(s) ? { file: s, name: null } : { file: null, name: s };
+  }
+  return bundledDefault ? { file: bundledDefault, name: null } : { file: null, name: 'Glass' };
+}
+
+function spawnDetached(spawn, cmd, args, extraOpts = {}) {
+  try {
+    const child = spawn(cmd, args, { detached: true, stdio: 'ignore', ...extraOpts });
+    child.unref?.();
+    child.on?.('error', () => {}); // missing player is fine
+    return child;
+  } catch { return null; }
 }
 
 export default {
@@ -43,23 +75,30 @@ export default {
 
   async send(n, config, { signal, log, execFile, spawn }) {
     const soundOpt = config.providers?.desktop?.sound; // true | false | string
+    const bundled = bundledSound();
     const plat = detectPlatform();
-    if (plat === 'darwin') return sendMac(n, soundOpt, { signal, execFile });
-    if (plat === 'linux') return sendLinux(n, { signal, execFile, log });
-    if (plat === 'wsl' || plat === 'win32') return sendWindows(n, soundOpt, { signal, execFile, spawn });
+    if (plat === 'darwin') return sendMac(n, soundOpt, bundled, { signal, execFile, spawn });
+    if (plat === 'linux') return sendLinux(n, soundOpt, bundled, { signal, execFile, spawn, log });
+    if (plat === 'wsl' || plat === 'win32') return sendWindows(n, soundOpt, bundled, { signal, execFile, spawn });
     log?.debug?.(`desktop: unsupported platform ${plat}`);
     return undefined;
   },
 };
 
-async function sendMac(n, soundOpt, { signal, execFile }) {
+async function sendMac(n, soundOpt, bundled, { signal, execFile, spawn }) {
+  const { file, name } = resolveUnixSound(soundOpt, bundled);
+  // Audio: afplay handles mp3/wav/aiff and plays to completion (detached).
+  if (file && spawn) spawnDetached(spawn, 'afplay', [file]);
+  // Visual: native banner. Only ask osascript to play a sound when we have a system sound NAME
+  // (a bundled/custom file is handled by afplay above, so avoid doubling).
   let script = `display notification "${escAppleScript(n.body)}" with title "${escAppleScript(n.title)}"`;
-  const name = soundOpt === false ? null : (typeof soundOpt === 'string' && soundOpt.trim() ? soundOpt.trim() : 'Glass');
-  if (name) script += ` sound name "${escAppleScript(name)}"`;
+  if (!file && name) script += ` sound name "${escAppleScript(name)}"`;
   await execFile('osascript', ['-e', script], { signal });
 }
 
-async function sendLinux(n, { signal, execFile, log }) {
+async function sendLinux(n, soundOpt, bundled, { signal, execFile, spawn, log }) {
+  const { file } = resolveUnixSound(soundOpt, bundled);
+  if (file && spawn) playLinuxFile(spawn, file);
   const urgency = n.priority === 'high' ? 'critical' : n.priority === 'low' ? 'low' : 'normal';
   try {
     await execFile('notify-send', ['-a', 'Claude Code', '-u', urgency, n.title, n.body], { signal });
@@ -69,15 +108,33 @@ async function sendLinux(n, { signal, execFile, log }) {
   }
 }
 
+// Try audio players in order; each ENOENT falls through to the next (best-effort on Linux).
+function playLinuxFile(spawn, file) {
+  const candidates = /\.wav$/i.test(file)
+    ? [['paplay', [file]], ['aplay', ['-q', file]], ['ffplay', ['-nodisp', '-autoexit', '-loglevel', 'quiet', file]]]
+    : [['ffplay', ['-nodisp', '-autoexit', '-loglevel', 'quiet', file]], ['mpg123', ['-q', file]], ['paplay', [file]]];
+  let i = 0;
+  const tryNext = () => {
+    if (i >= candidates.length) return;
+    const [cmd, args] = candidates[i++];
+    try {
+      const c = spawn(cmd, args, { detached: true, stdio: 'ignore' });
+      c.unref?.();
+      c.on?.('error', tryNext);
+    } catch { tryNext(); }
+  };
+  tryNext();
+}
+
 // A self-contained PowerShell program that plays any audio file to completion via
-// System.Windows.Media.MediaPlayer (supports mp3/wav/wma/…), capped at 30s.
-function buildPlayerScript(wavPath) {
+// System.Windows.Media.MediaPlayer (mp3/wav/wma/…), capped at 30s.
+function buildPlayerScript(soundPath) {
   return [
     "$ErrorActionPreference='SilentlyContinue'",
     'Add-Type -AssemblyName PresentationCore',
     '$p=New-Object System.Windows.Media.MediaPlayer',
-    `$p.Open((New-Object System.Uri('${psQuote(wavPath)}')))`,
-    '$n=0; while(-not $p.NaturalDuration.HasTimeSpan -and $n -lt 40){ Start-Sleep -Milliseconds 50; $n++ }',
+    `$p.Open((New-Object System.Uri('${psQuote(soundPath)}')))`,
+    '$n=0; while(-not $p.NaturalDuration.HasTimeSpan -and $n -lt 60){ Start-Sleep -Milliseconds 50; $n++ }',
     '$p.Play()',
     '$ms=2000; if($p.NaturalDuration.HasTimeSpan){ $ms=[int]$p.NaturalDuration.TimeSpan.TotalMilliseconds+400 }',
     'if($ms -gt 30000){ $ms=30000 }',
@@ -86,25 +143,18 @@ function buildPlayerScript(wavPath) {
   ].join('; ');
 }
 
-function sendWindows(n, soundOpt, { signal, execFile, spawn }) {
-  const wav = resolveWindowsSound(soundOpt);
-
-  // Audio: fire-and-forget a DETACHED player so it plays fully, unbound by the hook's
-  // 1.5s dispatch timeout / 2s watchdog. Any format, plays to completion (≤30s).
-  if (wav && spawn) {
-    try {
-      const child = spawn(
-        'powershell.exe',
-        ['-NoProfile', '-NonInteractive', '-WindowStyle', 'Hidden', '-Command', buildPlayerScript(wav)],
-        { detached: true, stdio: 'ignore', windowsHide: true },
-      );
-      child.unref?.();
-      child.on?.('error', () => {});
-    } catch { /* audio is best-effort */ }
+function sendWindows(n, soundOpt, bundled, { signal, execFile, spawn }) {
+  const sound = resolveWindowsSound(soundOpt, process.env, bundled);
+  // Audio: DETACHED player, unbound by the hook's 1.5s dispatch timeout; plays fully.
+  if (sound && spawn) {
+    spawnDetached(
+      spawn,
+      'powershell.exe',
+      ['-NoProfile', '-NonInteractive', '-WindowStyle', 'Hidden', '-Command', buildPlayerScript(sound)],
+      { windowsHide: true },
+    );
   }
-
-  // Visual: show a real toast if BurntToast is installed (silent — our player owns the sound).
-  // If it isn't installed, this is a no-op and the sound alone stands in.
+  // Visual: a real toast if BurntToast is installed (silent — the player owns the sound).
   const title = psQuote(n.title);
   const body = psQuote(n.body);
   const toast = "$ErrorActionPreference='SilentlyContinue'; "
