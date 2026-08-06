@@ -1,0 +1,6 @@
+# This plugin has zero runtime dependencies; node_modules should never exist,
+# but ignore it defensively along with common local cruft.
+node_modules/
+*.log
+.DS_Store
+Thumbs.db

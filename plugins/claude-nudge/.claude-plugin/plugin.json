@@ -1,0 +1,40 @@
+{
+  "$schema": "https://json.schemastore.org/claude-code-plugin-manifest.json",
+  "name": "claude-nudge",
+  "displayName": "claude-nudge",
+  "description": "Desktop and phone notifications when Claude Code finishes a turn or needs your input",
+  "version": "0.1.0",
+  "author": { "name": "Hamza", "email": "hamza.rayeen008@gmail.com" },
+  "homepage": "https://github.com/hamzaa-001/claude-nudge",
+  "repository": "https://github.com/hamzaa-001/claude-nudge",
+  "license": "MIT",
+  "keywords": ["notifications", "productivity", "hooks", "ntfy"],
+  "userConfig": {
+    "ntfyTopic": {
+      "type": "string",
+      "title": "ntfy topic",
+      "description": "Your private ntfy topic for phone push. Pick a long, unguessable value; anyone who knows it can read your notifications. Leave empty to disable phone push.",
+      "sensitive": true
+    },
+    "minDurationSeconds": {
+      "type": "number",
+      "title": "Minimum turn seconds",
+      "description": "Only notify at turn-end when the turn ran at least this long. Raise this if you get too many pings.",
+      "default": 30,
+      "min": 0,
+      "max": 86400
+    },
+    "desktopEnabled": {
+      "type": "boolean",
+      "title": "Desktop notifications",
+      "description": "Show a local desktop notification on this machine.",
+      "default": true
+    },
+    "debug": {
+      "type": "boolean",
+      "title": "Debug logging",
+      "description": "Write a JSONL debug log to ~/.claude/nudge/debug.log (no secrets are logged).",
+      "default": false
+    }
+  }
+}

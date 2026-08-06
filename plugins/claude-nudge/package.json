@@ -1,0 +1,7 @@
+{
+  "name": "claude-nudge",
+  "version": "0.1.0",
+  "description": "Desktop and phone notifications when Claude Code finishes a turn or needs your input",
+  "private": true,
+  "license": "MIT"
+}

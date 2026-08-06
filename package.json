@@ -1,0 +1,16 @@
+{
+  "name": "claude-nudge-repo",
+  "version": "0.1.0",
+  "description": "Desktop and phone notifications when Claude Code finishes a turn or needs your input",
+  "private": true,
+  "type": "module",
+  "engines": { "node": ">=18" },
+  "scripts": {
+    "test": "node --test",
+    "smoke": "node scripts/smoke.mjs",
+    "guard": "node scripts/guard.mjs",
+    "validate": "claude plugin validate ./plugins/claude-nudge --strict",
+    "check": "npm run guard && npm test && npm run smoke"
+  },
+  "license": "MIT"
+}

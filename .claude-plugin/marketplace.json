@@ -1,0 +1,16 @@
+{
+  "$schema": "https://json.schemastore.org/claude-code-marketplace.json",
+  "name": "claude-nudge-marketplace",
+  "owner": {
+    "name": "Hamza",
+    "url": "https://github.com/hamzaa-001"
+  },
+  "plugins": [
+    {
+      "name": "claude-nudge",
+      "source": "./plugins/claude-nudge",
+      "description": "Desktop and phone notifications when Claude Code finishes or needs you",
+      "category": "productivity"
+    }
+  ]
+}
