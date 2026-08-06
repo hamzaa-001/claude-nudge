@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import desktop from '../../plugins/claude-nudge/scripts/providers/desktop.mjs';
+import desktop, { resolveWindowsSound } from '../../plugins/claude-nudge/scripts/providers/desktop.mjs';
 import { detectPlatform } from '../../plugins/claude-nudge/scripts/lib/platform.mjs';
 
 const NOTE = {
@@ -30,6 +30,26 @@ test('passes the AbortSignal through to execFile', async () => {
   const plat = detectPlatform();
   if (plat !== 'linux' || true) { /* signal is forwarded on all platforms that call execFile */ }
   if (seenSignal !== undefined) assert.equal(seenSignal, controller.signal);
+});
+
+test('resolveWindowsSound maps names, honors false, and passes paths through', () => {
+  const env = { SystemRoot: 'C:\\Windows' };
+  assert.equal(resolveWindowsSound(false, env), null);
+  assert.equal(resolveWindowsSound(true, env), 'C:\\Windows\\Media\\Windows Notify System Generic.wav');
+  assert.equal(resolveWindowsSound('calendar', env), 'C:\\Windows\\Media\\Windows Notify Calendar.wav');
+  assert.equal(resolveWindowsSound('unknown-name', env), 'C:\\Windows\\Media\\Windows Notify System Generic.wav');
+  assert.equal(resolveWindowsSound('D:\\sounds\\mine.wav', env), 'D:\\sounds\\mine.wav');
+});
+
+test('Windows send: chosen wav ends up in the powershell argv (no shell)', async () => {
+  if (detectPlatform() !== 'win32' && detectPlatform() !== 'wsl') return;
+  let call;
+  const execFile = async (command, args, opts) => { call = { command, args, opts }; return { stdout: '' }; };
+  await desktop.send(NOTE, { providers: { desktop: { enabled: true, sound: 'calendar' } } }, { execFile, log: { debug() {} } });
+  assert.match(call.command, /powershell/i);
+  assert.ok(Array.isArray(call.args));
+  assert.ok(call.args.join(' ').includes('Windows Notify Calendar.wav'));
+  assert.ok(!('shell' in (call.opts || {})));
 });
 
 test('linux: missing notify-send is swallowed as a no-op', async () => {

@@ -84,7 +84,10 @@ function applyEnv(cfg, env) {
   if (env.NUDGE_QUIET_START) set('quietHours.start', env.NUDGE_QUIET_START);
   if (env.NUDGE_QUIET_END) set('quietHours.end', env.NUDGE_QUIET_END);
   set('providers.desktop.enabled', toBool(env.NUDGE_DESKTOP_ENABLED));
-  set('providers.desktop.sound', toBool(env.NUDGE_DESKTOP_SOUND));
+  if (env.NUDGE_DESKTOP_SOUND != null) {
+    const b = toBool(env.NUDGE_DESKTOP_SOUND); // "true"/"false" -> boolean; a name -> string
+    set('providers.desktop.sound', b === undefined ? env.NUDGE_DESKTOP_SOUND : b);
+  }
   set('providers.ntfy.enabled', toBool(env.NUDGE_NTFY_ENABLED));
   if (env.NUDGE_NTFY_SERVER) set('providers.ntfy.server', env.NUDGE_NTFY_SERVER);
   if (env.NUDGE_NTFY_TOPIC) set('providers.ntfy.topic', env.NUDGE_NTFY_TOPIC);
@@ -130,7 +133,11 @@ function validate(cfg, onWarn) {
     else cfg.providers[name] = { ...structuredClone(def), ...cfg.providers[name] };
   }
   cfg.providers.desktop.enabled = !!cfg.providers.desktop.enabled;
-  cfg.providers.desktop.sound = cfg.providers.desktop.sound !== false;
+  // sound may be false (silent), true (default chime), or a string (named sound / wav path).
+  const snd = cfg.providers.desktop.sound;
+  if (snd === false) cfg.providers.desktop.sound = false;
+  else if (typeof snd === 'string' && snd.trim()) cfg.providers.desktop.sound = snd.trim();
+  else cfg.providers.desktop.sound = true;
   if (!isPlainObject(cfg.providers.webhook.headers)) cfg.providers.webhook.headers = {};
   return cfg;
 }

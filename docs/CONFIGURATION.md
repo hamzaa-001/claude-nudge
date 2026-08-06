@@ -83,7 +83,15 @@ Every provider has `enabled` plus its own fields. A provider must be **both enab
 | Field | Notes |
 |---|---|
 | `enabled` | Local OS notification. |
-| `sound` | Play a sound (macOS `Glass`; Windows/WSL system sound). |
+| `sound` | `true` (gentle default chime), `false` (silent), or a name/path. |
+
+**Sound options.** On Windows/WSL the default is the soft `Windows Notify System Generic` chime (not the harsh Asterisk beep). Set `providers.desktop.sound` to any of these friendly names — `generic`, `calendar`, `messaging`, `email`, `notify`, `ding`, `chimes` — or to an absolute path to your own `.wav`. On macOS the value is used as the `osascript` sound name (default `Glass`). Example:
+
+```json
+{ "providers": { "desktop": { "enabled": true, "sound": "calendar" } } }
+```
+
+Or per-shell: `NUDGE_DESKTOP_SOUND=messaging` (or `false` to silence).
 
 #### `ntfy` (phone push)
 | Field | Notes |

@@ -3,7 +3,7 @@
   "name": "claude-nudge",
   "displayName": "claude-nudge",
   "description": "Desktop and phone notifications when Claude Code finishes a turn or needs your input",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "author": { "name": "Hamza", "email": "hamza.rayeen008@gmail.com" },
   "homepage": "https://github.com/hamzaa-001/claude-nudge",
   "repository": "https://github.com/hamzaa-001/claude-nudge",

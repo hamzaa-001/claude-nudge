@@ -86,6 +86,23 @@ test('userConfig env vars map in and auto-enable ntfy', () => {
   assert.equal(c.debug, true);
 });
 
+test('desktop.sound preserves a string name, keeps false, defaults to true', () => {
+  const home = tempHome();
+  writeHomeConfig(home, { providers: { desktop: { sound: 'calendar' } } });
+  assert.equal(loadConfig({ homeDir: home, env: {} }).providers.desktop.sound, 'calendar');
+
+  const home2 = tempHome();
+  writeHomeConfig(home2, { providers: { desktop: { sound: false } } });
+  assert.equal(loadConfig({ homeDir: home2, env: {} }).providers.desktop.sound, false);
+
+  assert.equal(loadConfig({ homeDir: tempHome(), env: {} }).providers.desktop.sound, true);
+});
+
+test('NUDGE_DESKTOP_SOUND accepts a name or a boolean', () => {
+  assert.equal(loadConfig({ homeDir: tempHome(), env: { NUDGE_DESKTOP_SOUND: 'messaging' } }).providers.desktop.sound, 'messaging');
+  assert.equal(loadConfig({ homeDir: tempHome(), env: { NUDGE_DESKTOP_SOUND: 'false' } }).providers.desktop.sound, false);
+});
+
 test('numeric clamping keeps values in range', () => {
   const c = loadConfig({ cwd: undefined, homeDir: tempHome(), env: { NUDGE_MIN_DURATION_MS: '-500' } });
   assert.equal(c.minDurationMs, 0);
